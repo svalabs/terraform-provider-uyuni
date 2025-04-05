@@ -1,6 +1,7 @@
 module tools
 
-go 1.22.7
+go 1.23.0
+
 toolchain go1.23.7
 
 require (

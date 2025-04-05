@@ -26,6 +26,7 @@ website/node_modules
 *.iml
 trace.txt
 *.bck.yml
+terraform-provider-uyuni
 
 website/vendor
 
