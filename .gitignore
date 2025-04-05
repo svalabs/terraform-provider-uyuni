@@ -25,6 +25,7 @@ website/node_modules
 *.test
 *.iml
 trace.txt
+*.bck.yml
 
 website/vendor
 
