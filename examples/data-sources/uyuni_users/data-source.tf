@@ -12,4 +12,4 @@ provider "uyuni" {
   password = "admin"
 }
 
-# data "uyuni_users" "example" {}
+data "uyuni_users" "my_users" {}

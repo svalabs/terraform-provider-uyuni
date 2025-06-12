@@ -12,4 +12,10 @@ provider "uyuni" {
   password = "admin"
 }
 
-# data "uyuni_users" "example" {}
+resource "uyuni_user" "sgiertz" {
+  login     = "sgiertz"
+  firstname = "Simone"
+  lastname  = "Giertz"
+  email     = "sgiertz@foo.bar"
+  password  = "test123"
+}
