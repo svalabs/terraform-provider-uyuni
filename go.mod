@@ -1,12 +1,10 @@
 module terraform-provider-uyuni
 
-go 1.23.0
-
-toolchain go1.23.7
+go 1.24.0
 
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.15.0
-	github.com/hashicorp/terraform-plugin-log v0.9.0
+	github.com/hashicorp/terraform-plugin-log v0.10.0
 	github.com/uyuni-project/uyuni-tools v0.0.0-20240925104919-172b63dcc7ae
 )
 
