@@ -10,61 +10,77 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/uyuni-project/uyuni-tools/shared/api"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ datasource.DataSource              = &UsersDataSource{}
-	_ datasource.DataSourceWithConfigure = &UsersDataSource{}
+	_ datasource.DataSource              = &usersDataSource{}
+	_ datasource.DataSourceWithConfigure = &usersDataSource{}
 )
 
-// UsersDataSourceModel maps the data source schema data.
-type UsersDataSourceModel struct {
-	Users []userModel `tfsdk:"user"`
+// usersDataSource is the data source implementation.
+type usersDataSource struct {
+	client *api.HTTPClient
 }
 
-// userModel maps user schema data.
-type userModel struct {
-	ID    types.Int64  `tfsdk:"id"`
-	Login types.String `tfsdk:"login"`
+// usersDataSourceModel maps the data source schema data.
+type usersDataSourceModel struct {
+	ID    types.String    `tfsdk:"id"`
+	Users []userDataModel `tfsdk:"users"`
 }
 
-type user_api struct {
-	Id       int
-	Login    string
-	Login_UC string
-	Enabled  bool
+// userDataModel represents a user in the data source.
+type userDataModel struct {
+	ID      types.Int64  `tfsdk:"id"`
+	Login   types.String `tfsdk:"login"`
+	Enabled types.Bool   `tfsdk:"enabled"`
+}
+
+// userListAPIModel represents the user data structure returned by the Uyuni API for user lists.
+type userListAPIModel struct {
+	Id       int    `json:"id"`
+	Login    string `json:"login"`
+	Login_UC string `json:"login_uc"`
+	Enabled  bool   `json:"enabled"`
 }
 
 // NewUsersDataSource is a helper function to simplify the provider implementation.
 func NewUsersDataSource() datasource.DataSource {
-	return &UsersDataSource{}
-}
-
-// UsersDataSource is the data source implementation.
-type UsersDataSource struct {
-	client *api.HTTPClient
+	return &usersDataSource{}
 }
 
 // Metadata returns the data source type name.
-func (d *UsersDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *usersDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_users"
 }
 
 // Schema defines the schema for the data source.
-func (d *UsersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+func (d *usersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Description: "Fetches a list of all users in the Uyuni organization.",
 		Attributes: map[string]schema.Attribute{
-			"user": schema.ListNestedAttribute{
-				Computed: true,
+			"id": schema.StringAttribute{
+				Computed:    true,
+				Description: "Data source identifier.",
+			},
+			"users": schema.ListNestedAttribute{
+				Computed:    true,
+				Description: "List of users in the organization.",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"id": schema.Int64Attribute{
-							Computed: true,
+							Computed:    true,
+							Description: "User ID.",
 						},
 						"login": schema.StringAttribute{
-							Required: true,
+							Computed:    true,
+							Description: "User login name.",
+						},
+						"enabled": schema.BoolAttribute{
+							Computed:    true,
+							Description: "Whether the user is enabled.",
 						},
 					},
 				},
@@ -74,41 +90,44 @@ func (d *UsersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 }
 
 // Read refreshes the Terraform state with the latest data.
-func (d *UsersDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var state UsersDataSourceModel
+func (d *usersDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var state usersDataSourceModel
 
-	// read users from API
-	users, err := api.Get[[]user_api](d.client, "user/listUsers")
+	tflog.Debug(ctx, "Reading users from Uyuni API")
+
+	// Get users from Uyuni API
+	usersResp, err := api.Get[[]userListAPIModel](d.client, "user/listUsers")
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unable to Read Uyuni user",
-			err.Error(),
+			"Unable to Read Uyuni Users",
+			fmt.Sprintf("Could not read users from Uyuni API: %s", err.Error()),
 		)
 		return
 	}
 
-	// Map response body to model
-	for _, this_user := range users.Result {
-		userState := userModel{
-			ID:    types.Int64Value(int64(this_user.Id)),
-			Login: types.StringValue(this_user.Login),
-		}
+	// Map response to model
+	state.ID = types.StringValue("users")
+	state.Users = make([]userDataModel, len(usersResp.Result))
 
-		state.Users = append(state.Users, userState)
+	for i, user := range usersResp.Result {
+		state.Users[i] = userDataModel{
+			ID:      types.Int64Value(int64(user.Id)),
+			Login:   types.StringValue(user.Login),
+			Enabled: types.BoolValue(user.Enabled),
+		}
 	}
+
+	tflog.Debug(ctx, "Successfully read users", map[string]any{
+		"user_count": len(state.Users),
+	})
 
 	// Set state
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
 }
 
 // Configure adds the provider configured client to the data source.
-func (d *UsersDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	// Add a nil check when handling ProviderData because Terraform
-	// sets that data after it calls the ConfigureProvider RPC.
+func (d *usersDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -119,7 +138,6 @@ func (d *UsersDataSource) Configure(_ context.Context, req datasource.ConfigureR
 			"Unexpected Data Source Configure Type",
 			fmt.Sprintf("Expected *api.HTTPClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
-
 		return
 	}
 
